@@ -1,0 +1,518 @@
+---
+title: "module18"
+output: html_document
+---
+Regression modeling- looking at relationships among more than one variable
+
+```{r}
+library(tidyverse)
+library(manipulate)
+library(patchwork)
+library(infer)
+library(broom)
+```
+
+```{r}
+f <- "https://raw.githubusercontent.com/difiore/ada-2022-datasets/main/zombies.csv"
+d <- read_csv(f, col_names = TRUE)
+```
+
+```{r}
+head(d)
+plot(data = d, height ~ weight)
+```
+covariance: how two numeric variables "change together" and whether that change is positive or negative
+```{r}
+w <- d$weight
+h <- d$height
+n <- length(w) # or length(h)
+cov_wh <- sum((w - mean(w)) * (h - mean(h))) / (n - 1)
+cov_wh
+```
+
+```{r}
+cor_wh <- cov_wh/(sd(w)*sd(h))
+cor_wh
+```
+
+Regression coefficients:
+B0 is the intercept (Y-value when X is 0)
+B1 is the slope of the line describing relationship between predictor and response 
+
+It's assumed that X variable is controlled and measured with greater precision than Y (dependent) variable 
+  Error term then usually restricted to Y dimension 
+Ordinary least squares regression: want to find B1 and B0 that minimizes (yi-yhat)^2
+
+```{r}
+d <- mutate(d, centered_height = height - mean(height))
+d <- mutate(d, centered_weight = weight - mean(weight))
+
+p1 <- ggplot(data = d, aes(x = weight, y = height)) + geom_point()
+p2 <- ggplot(data = d, aes(x = centered_weight,
+  y = centered_height)) + geom_point()
+
+p1 + p2
+```
+
+```{r}
+slope.test <- function(beta1, data){
+  g <- ggplot(data=data, aes(x = centered_weight, y = centered_height))
+  g <- g + geom_point()
+  g <- g + geom_abline(intercept = 0, slope = beta1, size = 1, colour="blue", alpha=1/2)
+  ols <- sum((data$centered_height - beta1 * data$centered_weight) ^2)
+  g <- g + ggtitle(paste("Slope = ", beta1,
+    "\nSum of Squared Deviations = ", round(ols, 3)))
+  g
+}
+```
+
+```{r}
+manipulate(slope.test(beta1, data=d),
+  beta1 = slider(-1, 1, initial = 0, step = 0.005))
+```
+
+```{r}
+(beta1 <- cor(w, h) * (sd(h) / sd(w)))
+```
+
+```{r}
+(beta0 <- mean(h) - beta1 * mean(w))
+```
+
+```{r}
+m <- lm(height ~ weight, data = d)
+m
+```
+
+```{r}
+names(m)
+```
+
+```{r}
+tidy(m)
+```
+
+```{r}
+g <- ggplot(data = d, aes(x = weight, y = height))
+g <- g + geom_point()
+g <- g + geom_smooth(method = "lm", formula = y ~ x)
+g
+```
+
+```{r}
+library(lmodel2) # load the lmodel2 package
+# Run the regression
+mII <- lmodel2( height ~ weight, data = d, range.y = "relative",
+  range.x = "relative", nperm = 1000)
+mII
+```
+
+```{r}
+par(mfrow = c(2, 2))
+plot(mII, "OLS")
+plot(mII, "MA")
+plot(mII, "SMA")
+plot(mII, "RMA")
+```
+
+```{r}
+detach(package:lmodel2)
+```
+
+```{r}
+mI <- lm(height ~ weight, data = d)
+summary(mI) # show lm() results
+```
+
+```{r}
+filter(mII$regression.results, Method == "OLS")
+```
+
+```{r}
+par(mfrow = c(1, 2))
+plot(mII, main = "lmodel2() OLS", xlab = "weight", ylab = "height")
+plot(data = d, height ~ weight, main = "lm()")
+abline(mI, col = "red")
+```
+
+```{r}
+par(mfrow = c(1, 1))
+plot(data = d, height ~ age)
+```
+
+```{r}
+beta1 <- cor(d$height, d$age) * sd(d$height) / sd(d$age)
+beta1
+```
+
+```{r}
+beta0 <- mean(d$height) - beta1 * mean(d$age)
+beta0
+```
+
+```{r}
+(m <- lm(height ~ age, data = d))
+```
+
+```{r}
+males <- filter(d, gender == "Male")
+
+(m <- lm(height ~ age, data = males))
+```
+
+```{r}
+females <-  filter(d, gender == "Female")
+(m <- lm(height ~ age, data = females))
+```
+
+```{r}
+m <- lm(data = d, height ~ weight)
+summary(m)
+```
+
+```{r}
+m.summary <- tidy(m)
+m.summary
+```
+
+```{r}
+m.summary$calc.statistic <- (m.summary$estimate-0)/m.summary$std.error 
+m.summary$calc.p.value <- 2 * pt(m.summary$calc.statistic,
+  df=nrow(d)-2, lower.tail = FALSE)
+m.summary
+```
+
+```{r}
+alpha <- 0.05
+# extract CIs from the model with
+# using the results of lm()
+(CI <- confint(m, level = 1 - alpha))
+```
+
+```{r}
+# using tidy()
+(CI <- tidy(m, conf.int = TRUE, conf.level = 1- alpha))
+```
+
+```{r}
+# by hand
+lower <- m.summary$estimate -
+  qt(1 - alpha / 2, df = nrow(d) - 2) * m.summary$std.error
+upper <- m.summary$estimate +
+  qt(1 - alpha / 2, df = nrow(d) - 2) * m.summary$std.error
+CI <- cbind(lower, upper)
+rownames(CI) <- c("(Intercept)", "weight")
+colnames(CI) <- c(paste0(as.character(alpha/2 * 100), " %"),paste0(as.character((1-alpha/2) * 100), " %"))
+CI
+```
+
+```{r}
+# first define alpha, CI boundaries, and critical values
+alpha <- 0.05
+confidence_level <- 1 - alpha
+p_lower <- alpha / 2
+p_upper <- 1 - (alpha / 2)
+degrees_of_freedom <- nrow(d) - 2
+critical_value <- qt(p_upper, df = degrees_of_freedom)
+
+# original slope
+original.slope <- lm(data = d, height ~ weight) %>%
+  # tidy the model and add the CI based on the t distribution
+  tidy(conf.int=TRUE, conf.level=confidence_level) %>%
+  # or manually calculate the CI based on the t distribution
+  mutate(
+    lower = estimate - std.error * critical_value,
+    upper = estimate + std.error * critical_value
+  ) %>%
+  filter(term=="weight")
+original.slope # show model results for slope of weight
+```
+
+```{r}
+permuted.slope <- d %>%
+  # specify model
+  specify(height ~ weight) %>%
+  # use a null hypothesis of independence
+  hypothesize(null = "independence") %>%
+  # generate permutation replicates
+  generate(reps = 1000, type = "permute") %>%
+  # calculate the slope statistic
+  calculate(stat = "slope")
+
+head(permuted.slope) # slopes from first few permutation replicates
+```
+
+```{r}
+# create confidence intervals
+
+permuted.slope.summary <- permuted.slope %>%
+  # summarize the mean, t distribution based CI, and quantile-based CI
+  summarize(
+    # mean of stat
+    estimate = mean(stat),
+    # std error of stat
+    std.error = sd(stat),
+    # calculate the CI based on the SE and t distribution
+    lower = estimate - std.error * critical_value,
+    upper = estimate + std.error * critical_value,
+    # calculate the CI based on the quantile (percentile) method
+    perm.lower = quantile(stat, p_lower),
+    perm.upper = quantile(stat, p_upper)
+  )
+
+# show summary of permuted sampling distribution
+permuted.slope.summary
+```
+
+```{r}
+get_ci(permuted.slope, level = 1 - alpha, type = "percentile")
+```
+
+```{r}
+get_ci(permuted.slope, level = 1 - alpha, type = "se",
+  point_estimate = pull(permuted.slope.summary, estimate)
+)
+```
+
+```{r}
+# plot the null distribution based on permutation
+hist(permuted.slope$stat, main="Histogram of Permuted\nSlope Values",
+  xlab = "Slope Coefficient")
+```
+
+```{r}
+# or using `visualize()` from {infer}
+visualize(permuted.slope) +
+  shade_p_value(obs_stat = original.slope$estimate, direction = "two_sided")
+```
+
+```{r}
+p.value <- permuted.slope %>% 
+  # add a column of the absolute value of the slope
+  mutate(abs_stat=abs(stat)) %>%
+  # calculate a summary statistic
+  summarize(
+    # calculate proportion of cases where the absolute value
+    # of the permuted slope is greater than or equal to the 
+    # absolute value of the observed slope
+    estimate = mean(abs_stat >= abs(pull(original.slope, estimate)))
+  )
+
+p.value
+```
+
+```{r}
+# the function `get_p_value()` returns this value directly...
+
+(p.value <- permuted.slope %>%
+  get_p_value(obs_stat = original.slope$estimate, direction="two_sided"))
+```
+
+```{r}
+boot.slope <- d %>%
+  # specify model
+  specify(height ~ weight) %>%
+  # generate bootstrap replicates
+  generate(reps = 1000, type = "bootstrap") %>%
+  # calculate the slope statistic
+  calculate(stat = "slope")
+
+head(boot.slope) # slopes from first few bootstrap replicates
+```
+
+```{r}
+# create confidence intervals for regression coefficients
+
+boot.slope.summary <- boot.slope %>%
+  # summarize the mean, t distribution based CI, and quantile-based CI
+  summarize(
+    # mean of stat
+    estimate = mean(stat),
+    # std error of stat
+    std.error = sd(stat),
+    # calculate the CI based on the SE and t distribution
+    lower = estimate - std.error * critical_value,
+    upper = estimate + std.error * critical_value,
+    # calculate the CI based on the quantile (percentile)  method
+    boot.lower = quantile(stat, p_lower),
+    boot.upper = quantile(stat, p_upper)
+  )
+
+# show summary of bootstrap sampling distribution
+boot.slope.summary
+```
+
+```{r}
+get_ci(boot.slope, level = 1 - alpha, type = "percentile")
+```
+
+```{r}
+get_ci(boot.slope, level = 1 - alpha, type = "se",
+  point_estimate = pull(boot.slope.summary, estimate)
+)
+```
+
+```{r}
+# plot the sampling distribution for based on bootstrapping
+hist(boot.slope$stat, main="Histogram of Bootstrapped\nSlope Values",
+  xlab = "Slope Coefficient")
+```
+
+```{r}
+visualize(boot.slope)
+```
+
+```{r}
+m <- lm(data = d, height ~ weight)
+y.hat <- predict(m, newdata = data.frame(weight = d$weight))
+df <- data.frame(cbind(d$weight, d$height, y.hat))
+names(df) <- c("x", "y", "yhat")
+head(df)
+```
+
+```{r}
+df <- augment(m, se_fit = TRUE)
+head(df)
+```
+
+```{r}
+g <- ggplot(data = df, aes(x = weight, y = .fitted))
+g <- g + geom_point(size = 0.25)
+g <- g + geom_point(aes(x = weight, y = height), color = "red")
+g <- g + geom_segment(aes(x = weight, y = .fitted, xend = weight, yend = height),
+  alpha = 0.25)
+g
+```
+
+```{r}
+ci <- predict(m, newdata = data.frame(weight = 150),
+  interval = "confidence", level = 1 - alpha) # for a single value
+ci
+```
+
+```{r}
+ci <- predict(m, newdata=data.frame(weight=d$weight),
+  interval = "confidence", level = 1 - alpha) # for a vector of values
+ci <- data.frame(ci)
+ci <- cbind(df$weight, ci)
+names(ci) <- c("weight", "c.fit", "c.lwr", "c.upr")
+g <- ggplot(data = df, aes(x = weight, y = height))
+g <- g + geom_point(alpha = 0.5)
+g <- g + geom_line(data = ci, aes(x = weight, y = c.fit),
+  color = "black")
+g <- g + geom_line(data = ci, aes(x = weight, y = c.lwr),
+  color = "blue")
+g <- g + geom_line(data = ci, aes(x = weight, y = c.upr),
+  color = "blue")
+g
+```
+
+```{r}
+df <- df %>% 
+  # calculate a confidence interval for the predicted values
+  mutate(
+    c.lwr = .fitted - qt(1-alpha/2, nrow(df) - 2) * .se.fit,
+    c.upr = .fitted + qt(1-alpha/2, nrow(df) -2) * .se.fit
+  )
+head(df)
+```
+
+```{r}
+g <- ggplot(data = df, aes(x = weight, y = height))
+g <- g + geom_point(alpha = 0.5)
+g <- g + geom_line(aes(x = weight, y = .fitted), color = "black")
+g <- g + geom_line(aes(x = weight, y = c.lwr), color = "blue")
+g <- g + geom_line(aes(x = weight, y = c.upr), color = "blue")
+g
+```
+
+```{r}
+pi <- predict(m, newdata = data.frame(weight = 150),
+  interval = "prediction", level=0.95) # for a single value
+pi
+```
+
+```{r}
+pi <- predict(m, newdata = data.frame(weight = d$weight),
+  interval="prediction",level=0.95) # for a vector of values
+pi <- data.frame(pi)
+pi <- cbind(d$weight, pi)
+names(pi) <- c("weight", "p.fit", "p.lwr", "p.upr")
+g <- g + geom_line(data=pi, aes(x=weight, y=p.lwr), color = "red")
+g <- g + geom_line(data=pi, aes(x=weight, y=p.upr), color = "red")
+g
+```
+
+```{r}
+sd <- glance(m) %>% pull(sigma) # sd deviation of residuals
+
+df <- df %>% 
+  # calculate a confidence interval for the predicted values
+  mutate(se.prediction = sqrt(sd ^ 2 + .se.fit ^ 2), #
+    p.lwr = .fitted - qt(1-alpha/2, nrow(df) - 2) * se.prediction,
+    p.upr = .fitted + qt(1-alpha/2, nrow(df) - 2) * se.prediction
+  )
+g <- ggplot(data = df, aes(x = weight, y = height))
+g <- g + geom_point(alpha = 0.5)
+g <- g + geom_line(aes(x = weight, y = .fitted), color = "black")
+g <- g + geom_line(aes(x = weight, y = c.lwr), color = "blue")
+g <- g + geom_line(aes(x = weight, y = c.upr), color = "blue")
+g <- g + geom_line(aes(x = weight, y = p.lwr), color = "red")
+g <- g + geom_line(aes(x = weight, y = p.upr), color = "red")
+g
+```
+
+```{r}
+g3 <- ggplot(data = d, aes(x = age, y = height)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", formula = y ~ x, se = TRUE)
+g3
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
